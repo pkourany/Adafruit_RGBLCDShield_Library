@@ -1,79 +1,62 @@
-// Install the LowPower library for optional sleeping support.
-// See loop() function comments for details on usage.
-//#include <LowPower.h>
+// Simple Interrupt Example based on https://github.com/pkourany/Adafruit_RGBLCDShield_Library/blob/master/examples/Interrupt/interrupt.ino
+// added mcp.readGPIOAB() to reset Interrupt --> only this is functional
+ 
 
-#if defined (SPARK)
-#include "Adafruit_MCP23017.h"
-#else
-#include <Wire.h>
-#include <Adafruit_MCP23017.h>
-#endif
-
-SYSTEM_MODE(MANUAL);
-
+#include "Adafruit_MCP23017/Adafruit_MCP23017.h" 
+ 
 Adafruit_MCP23017 mcp;
-
-#if defined (SPARK)
+ 
 byte ledPin=D7;
-#else
-byte ledPin=13;
-#endif
-
+ 
 // Interrupts from the MCP will be handled by this PIN
-#if defined (SPARK)
-byte arduinoIntPin=D3;		// for the spark Pin and Interrupt are the same
-byte arduinoInterrupt=D3;
-#else
-byte arduinoIntPin=3;
-// ... and this interrupt vector
-byte arduinoInterrupt=1;
-#endif
+byte SparkIntPin=D3;
 
-
-volatile boolean awakenByInterrupt = false;
-
+volatile uint8_t flashes=0;
+ 
 // Two pins at the MCP (Ports A/B where some buttons have been setup.)
 // Buttons connect the pin to grond, and pins are pulled up.
-byte mcpPinA=3;		//UP button on shield
+byte mcpPinA=1;		//UP button on shield
 byte mcpPinB=2;		//DOWN button on shield
 
 void setup(){
-
-  //Serial.begin(9600);
-  //Serial.println("MCP23007 Interrupt Test");
-
-  pinMode(arduinoIntPin,INPUT);
-
+ 
+  Serial.begin(9600);  
+  Serial.println("MCP23007 Interrupt Test");
+ 
+  pinMode(SparkIntPin,INPUT);
+  pinMode(ledPin, OUTPUT);  // use the LED as debugging
+ 
   mcp.begin();      // use default address 0
   
   // We mirror INTA and INTB, so that only one line is required between MCP and Arduino for int reporting
   // The INTA/B will not be Floating 
   // INTs will be signaled with a LOW
   mcp.setupInterrupts(true,false,LOW);
-
+ 
   // configuration for a button on port A
   // interrupt will triger when the pin is taken to ground by a pushbutton
   mcp.pinMode(mcpPinA, INPUT);
   mcp.pullUp(mcpPinA, HIGH);  // turn on a 100K pullup internally
-  mcp.setupInterruptPin(mcpPinA,FALLING); 
-
+  mcp.setupInterruptPin(mcpPinA,CHANGE); 
+ 
   // similar, but on port B.
   mcp.pinMode(mcpPinB, INPUT);
   mcp.pullUp(mcpPinB, HIGH);  // turn on a 100K pullup internall
-  mcp.setupInterruptPin(mcpPinB,FALLING);
-
-  // We will setup a pin for flashing from the int routine
-  pinMode(ledPin, OUTPUT);  // use the p13 LED as debugging
-
+  mcp.setupInterruptPin(mcpPinB,CHANGE);
+  
+   // Spark Interupt 
+  attachInterrupt(SparkIntPin, handleInterrupt, FALLING);
+  
+  //This will clear interrupts on MCP prior to entering main loop
+  mcp.readGPIOAB();
+   
+   
+ 
 }
-
-// The int handler will just signal that the int has happen
-// we will do the work from the main loop.
-void intCallBack(){
-  awakenByInterrupt=true;
-}
-
+ 
 void handleInterrupt(){
+    
+  Serial.println("Interrupt detected!");
   
   // Get more information from the MCP from the INT
   uint8_t pin=mcp.getLastInterruptPin();
@@ -81,60 +64,27 @@ void handleInterrupt(){
   
   // We will flash the led 1 or 2 times depending on the PIN that triggered the Interrupt
   // 3 and 4 flases are supposed to be impossible conditions... just for debugging.
-  uint8_t flashes=4; 
   if(pin==mcpPinA) flashes=1;
   if(pin==mcpPinB) flashes=2;
   if(val!=LOW) flashes=3;
+ 
+  //this will clear the MCP interrupt
+  mcp.readGPIOAB();
 
-  // simulate some output associated to this
-  for(int i=0;i<flashes;i++){  
-    delay(100);
-    digitalWrite(ledPin,HIGH);
-    delay(100);
-    digitalWrite(ledPin,LOW);
-  }
-
-  // we have to wait for the interrupt condition to finish
-  // otherwise we might go to sleep with an ongoing condition and never wake up again.
-  // as, an action is required to clear the INT flag, and allow it to trigger again.
-  // see datasheet for datails.
-  while( ! (mcp.digitalRead(mcpPinB) && mcp.digitalRead(mcpPinA) ));
-  // and clean queued INT signal
-  cleanInterrupts();
 }
-
-// handy for interrupts triggered by buttons
-// normally signal a few due to bouncing issues
-void cleanInterrupts(){
-#if !defined (SPARK)
-  EIFR=0x01;
-#endif
-  awakenByInterrupt=false;
-}  
-
-/**
- * main routine: sleep the arduino, and wake up on Interrups.
- * the LowPower library, or similar is required for sleeping, but sleep is simulated here.
- * It is actually posible to get the MCP to draw only 1uA while in standby as the datasheet claims,
- * however there is no stadndby mode. Its all down to seting up each pin in a way that current does not flow.
- * and you can wait for interrupts while waiting.
+ 
+ /**
+ * main routine: show flashes of the interrupt routine
  */
 void loop(){
+      
+    if (flashes > 0) {
+        // simulate some output associated to this
+        delay(100);
+        digitalWrite(ledPin,HIGH);
+        delay(100);
+        digitalWrite(ledPin,LOW);
+        flashes--;
+    }
   
-  // enable interrupts before going to sleep/wait
-  // And we setup a callback for the arduino INT handler.
-  attachInterrupt(arduinoInterrupt,intCallBack,FALLING);
-  
-  // Simulate a deep sleep
-  while(!awakenByInterrupt);
-  // Or sleep the arduino, this lib is great, if you have it.
-  //LowPower.powerDown(SLEEP_1S, ADC_OFF, BOD_OFF);
-  
-  // disable interrupts while handling them.
-  detachInterrupt(arduinoInterrupt);
-  
-  if(awakenByInterrupt) handleInterrupt();
 }
-
-
-
