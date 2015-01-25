@@ -1,0 +1,7 @@
+{
+  "name": "Adafruit_RGBLCDShield",
+  "author": "Nicolas Marchildon",
+  "license": "unknown",
+  "version": "0.0.1",
+  "description": "Library for the Adafruit RGB 16x2 LCD Shield"
+}
